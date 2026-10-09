@@ -28,6 +28,10 @@ The maintainer may decline a proposal or request a different approach.
 4. Open a pull request against `main` and link the relevant issue. Wait for the
    maintainer's review; a submission does not grant merge or release authority.
 
+Pull requests into `main` require a maintainer/code-owner review. The repository
+owner retains administrator override for their own maintenance work. Force pushes
+and deletion of `main` are blocked by branch protection.
+
 Pull requests are manually reviewed and merged. Public contributors work through
 forks; they do not receive direct write access. No automatic merge or publication
 workflow is configured. Keep discussion constructive and specific to the work.

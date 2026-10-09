@@ -17,7 +17,7 @@ ROOT_FILES = ['README.md', 'AI_INSTALL.md', 'INSTALLATION.json', 'AGENTS.md',
               'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'LICENSE',
               'LICENSE-ASSETS', 'NOTICE', 'install_betopo.py', 'verify_install.py',
               'package-manifest.json', 'tools/build_workspace.py', 'tools/package.py',
-              'tests/smoke.py', '.gitignore', '.gitattributes', '.github/pull_request_template.md',
+              'tests/smoke.py', '.gitignore', '.gitattributes', '.github/CODEOWNERS', '.github/pull_request_template.md',
               '.github/ISSUE_TEMPLATE/bug_report.yml',
               '.github/ISSUE_TEMPLATE/feature_request.yml',
               '.github/ISSUE_TEMPLATE/config.yml']
