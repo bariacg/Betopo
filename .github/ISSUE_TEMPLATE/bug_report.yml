@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem in Betopo.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove personal paths, credentials, and confidential model data before posting. For vulnerabilities, use Security → Report a vulnerability."
+  - type: input
+    id: versions
+    attributes:
+      label: Versions and operating system
+      placeholder: "Betopo 0.1.10, Blender 5.1.2, Windows 11"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: "Use a simple public-safe mesh where possible."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and relevant error
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Optional screenshots or minimal example
+      description: "Only attach files you have permission to share."

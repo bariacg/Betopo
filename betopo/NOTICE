@@ -1,0 +1,46 @@
+Betopo
+Copyright (c) 2026 Betopo contributors
+
+Licensing scope
+---------------
+Unless stated otherwise, Betopo source code, documentation, installation and
+build scripts, and workspace layout are licensed under the GNU General Public
+License, version 3 or (at your option) any later version (GPL-3.0-or-later).
+See LICENSE for the complete terms. This software is supplied without warranty.
+
+The original template geometry in betopo/templates.json and its eight wireframe
+preview images in betopo/icons/ are additionally licensed under the MIT license
+in LICENSE-ASSETS. Templates A-H were created by this project's creator, who
+confirmed ownership before their public distribution. Raw export files and
+their metadata are not part of this distribution.
+
+Blender and workspace layout
+---------------------------
+Betopo uses Blender's Python API and bundled modules. Blender is a separate
+dependency and is not distributed in this repository or release bundle.
+The workspace asset is generated from Blender's factory Modeling workspace;
+the factory layout originates with the Blender project and its contributors.
+Only workspace/screen layout data is saved; no user profile, personal startup
+file, scene objects, or private models are bundled. The generation script is
+provided in tools/build_workspace.py.
+Blender license information: https://www.blender.org/about/license/
+
+Workflow references
+-------------------
+RetopoFlow documentation and 3DCoat documentation were consulted for workflow
+ideas during development. Betopo does not bundle their source code, icons,
+screenshots, documentation, installers, or proprietary assets. Tool behavior
+and user-interface arrangements are independently implemented in this project.
+No compatibility, feature parity, endorsement, or affiliation is claimed.
+Reference links:
+https://docs.retopoflow.com/v4/quick_start.html
+https://3dcoat.com/docs/3dcoat/Tools.php?room=Modeling&lang=English
+
+Development assistance
+----------------------
+AI tools assisted with implementation and review. Changes were reviewed and
+tested for this project. This notice is not a warranty of originality or an
+assertion that a source review can rule out every intellectual-property claim.
+
+Contributors must disclose copied or adapted third-party material and preserve
+its applicable copyright and license notices. See CONTRIBUTING.md.

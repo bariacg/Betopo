@@ -1,0 +1,30 @@
+{
+  "version": "0.1.10",
+  "blender": "5.1.2",
+  "files": {
+    "LICENSE": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+    "LICENSE-ASSETS": "550ad4860e033760e769bc6ea03fdbf8b6c717d041fab5287fa9d2f46ffcd0b4",
+    "NOTICE": "82301b103d68984bc746009ef7b6b46dc6252545f3f16826f74fd901c0b12669",
+    "__init__.py": "c21db5780f8b39a839a261bef7a3534418691ea743603189c6b2c0677585ee8c",
+    "contours.py": "582c65a06fc3dcfd0cf26f4d50be83a441c1afae075c11d0bb70b82d77a32064",
+    "core.py": "f09d1205f4656595c9c70d2fe9ecc74da3259136387bc7ee855e4a8178c9a253",
+    "dock.py": "dd32a128ceaf6da65dd60a9161adda7af67b2fcc7944871d8d95bb02e797f683",
+    "dock_draw.py": "870d8bb67c4de778944ef8310db2c3dcdceb59fa8def189477ba53b23b016d00",
+    "holes.py": "f69ca72d96bd6729d90d08614c61059235f33e6585ae50abbb0054be1c8b1735",
+    "icons/A.png": "e1e8085e3f43f616763fbe729812a1d1e1c1731e5d4b3ba5db8f32d109de0b8a",
+    "icons/B.png": "f9a0067edcccf1594244c8ed43992be4fd8f80a86263bb6c3c0ba441ec6f6fcf",
+    "icons/C.png": "6e595d45913dd54f5a1566914abc21fa0a5cefaa7596ef9e37d8cee5d3c505a3",
+    "icons/D.png": "9a0870f77dd49ba738492a1c1f2a337a6ec31ebac772f25d56f75358b1dfdefe",
+    "icons/E.png": "9f18cd61c7e6c39e9bd27c6fa94fda6c266def484978b5489f5bf95aea77a1a0",
+    "icons/F.png": "0569189679d9d635e0eb8fde32bb27b38e69da5a7d1b567ce54d815a080cbc0a",
+    "icons/G.png": "ebe29c4dd965e75c5ce7398bca4f57c001790bcae46ee15fa1982ff5480a0155",
+    "icons/H.png": "237fe923a92828dc4d1db1333f532f6d973d16eb9ec3a0b902e58d3dca434db9",
+    "operators.py": "3f6e2046e4d5fa1994412f4e7d82482ef516160eef7db6de183a4d9dc89abf4e",
+    "point_faces.py": "f0176f434462cd91f3213b2012de6b05acb75b5414abb951246291819ae3499c",
+    "slice.py": "96e44ad2d744b52073b0fe8b12f6a03d08a021e3dc7565d8e87c07a691ae3941",
+    "templates.json": "195d4630bda11ac389bd346a23a1699f9c13395ebd97501740719c3fa7a96326",
+    "tools.py": "ca54e506fce471cce86a28b061196e07fca166e2337681c62650d8da03df91f1",
+    "transition.py": "a9c006e416d042f494b608db7335da7c86357eeb2a34716ad341a8ae0c63fd69",
+    "workspace.blend": "3c79711dad94efd76d4d420f2d4162a86098a2d8c9c49947b4492976024dba39"
+  }
+}

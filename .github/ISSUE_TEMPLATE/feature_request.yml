@@ -1,0 +1,22 @@
+name: Improvement or workflow feedback
+description: Suggest an improvement for the maintainer to consider.
+title: "[Idea]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: "Describe your retopology workflow and what slows it down."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or examples
+      description: "Link references instead of uploading another product's proprietary assets."
