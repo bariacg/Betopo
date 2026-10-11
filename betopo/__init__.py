@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 Betopo contributors
 bl_info = {
-    'name': 'Betopo', 'author': 'Betopo contributors', 'version': (0, 1, 10),
+    'name': 'Betopo', 'author': 'Betopo contributors', 'version': (0, 1, 16),
     'blender': (5, 1, 0), 'location': 'Betopo workspace > bottom buttons / sidebar',
     'description': 'Surface retopology tools and reusable topology templates',
     'category': 'Mesh',
@@ -47,6 +47,17 @@ class BETOPO_Settings(bpy.types.PropertyGroup):
     contour_vertices: IntProperty(name='Loop Vertices', default=8, min=3, max=128)
     strip_width: FloatProperty(name='Strip Width', default=.1, min=.00001, precision=4)
     dot_smooth: FloatProperty(name='Smooth', default=1.0, min=0.0, max=1.0)
+    area_quad_size: FloatProperty(name='Quad Size', default=.1, min=.00001, precision=4)
+    area_columns: IntProperty(name='Columns (0 = auto)', default=0, min=0, max=128)
+    area_rows: IntProperty(name='Rows (0 = auto)', default=0, min=0, max=128)
+    flow_segments: IntProperty(name='Segments', default=12, min=1, max=256)
+    flow_width: FloatProperty(name='Strip Width', default=.1, min=.00001, precision=4)
+    # Legacy serialized values are retained; Flow now uses editable cubic tangents.
+    flow_smooth: FloatProperty(name='Smooth', default=.5, min=0.0, max=1.0)
+    flow_closed: BoolProperty(name='Closed Loop', default=False)
+    flow_snap: BoolProperty(name='Attach to Borders', default=True)
+    flow_mode: EnumProperty(name='Mode', items=[('NEW','New Strip','Create a ribbon from two endpoints and tangent handles'),
+                           ('REDRAW','Redraw Last','Reshape the last Flow strip in this session')], default='NEW')
     face_sides: EnumProperty(name='Face Type', items=[('4','Quad',''),('3','Triangle','')], default='4')
     points_sides: EnumProperty(name='Face Type', items=[('4','Quad',''),('3','Triangle','')], default='4')
     face_search_radius: IntProperty(name='Face Search (px)', default=220, min=40, max=1000)
@@ -138,6 +149,32 @@ def draw_tool_parameters(layout, settings):
         layout.label(text='Draw across source, then Enter')
         layout.label(text='Adjust settings after drawing for live preview')
         layout.label(text='Select a boundary ring to extend')
+    elif settings.tool == 'AREA':
+        layout.prop(settings, 'area_quad_size')
+        layout.prop(settings, 'area_columns')
+        layout.prop(settings, 'area_rows')
+        layout.prop(settings, 'snap_pixels')
+        layout.label(text='Draw 4 connected sides; Enter: create grid')
+        layout.label(text='Click a border first to reuse it')
+        layout.label(text='Ctrl-drag: move a free corner')
+        layout.label(text='Backspace: remove last side')
+        layout.label(text='Attached sides keep their vertex count')
+    elif settings.tool == 'FLOW':
+        layout.prop(settings, 'flow_mode')
+        row = layout.row()
+        row.enabled = settings.flow_mode == 'NEW'
+        row.prop(settings, 'flow_segments')
+        layout.prop(settings, 'flow_width')
+        layout.prop(settings, 'flow_snap')
+        layout.prop(settings, 'snap_pixels')
+        layout.label(text='Click two endpoints or drag start to end')
+        layout.label(text='Drag points / orange tangent handles')
+        layout.label(text='Drag white curve: move | Enter: apply')
+        layout.label(text='Start / finish at a border to attach')
+        layout.label(text='Attached endpoints stay fixed')
+        if settings.flow_mode == 'REDRAW':
+            layout.label(text='Last strip only; keeps its segment count')
+            layout.label(text='Connected / edited strips: use Tweak')
     elif settings.tool == 'FILL':
         layout.prop(settings, 'hole_hover')
         layout.prop(settings, 'grid_span')

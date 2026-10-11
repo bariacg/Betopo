@@ -27,9 +27,11 @@ before_data = {key: {block.as_pointer() for block in getattr(bpy.data, key)}
 before_workspaces = {w.as_pointer(): w.name for w in bpy.data.workspaces}
 betopo.register()
 try:
-    assert betopo.bl_info['version'] == (0, 1, 10)
+    assert betopo.bl_info['version'] == (0, 1, 16)
     assert bpy.context.scene.betopo.contour_vertices == 8
     assert bpy.context.scene.betopo.tweak_strength == 1.0
+    assert bpy.context.scene.betopo.flow_segments == 12
+    assert {'AREA','FLOW'} <= {name for name,label in betopo.tools.TOOL_NAMES}
     assert set(betopo.core.TEMPLATES) == set('ABCDEFGH')
     for name, patch in betopo.core.TEMPLATES.items():
         assert patch['faces'], name

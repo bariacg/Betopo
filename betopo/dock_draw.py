@@ -8,6 +8,13 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 
 _shader = None
+BUTTON_COLORS = {
+    'POINTS': (.11, .36, .17, 1),  # Active green
+    'DOT': (.52, .16, .33, 1),     # Active pink
+    'SLICE': (.57, .25, .07, 1),   # Active orange
+    'STAMP': (.36, .20, .56, 1),   # Active purple
+    'TWEAK': (.78, .64, .13, 1),   # Active yellow
+}
 
 
 def layout(width, height, left_inset, right_inset, scale, items):
@@ -74,6 +81,17 @@ def draw(layout, active_id=None, hover_id=None, disabled_ids=(), scale=1.0):
             identifier = button['id']
             if identifier in disabled_ids:
                 background, foreground = (.12, .13, .14, 1), (.47, .49, .51, 1)
+            elif identifier in BUTTON_COLORS:
+                base = BUTTON_COLORS[identifier]
+                if identifier == active_id:
+                    background = base
+                    foreground = (.05, .05, .05, 1) if identifier == 'TWEAK' else (1, 1, 1, 1)
+                else:
+                    # Keep only a faint tint until this tool is selected.
+                    muted = tuple(.22 + (value - .22) * .16 for value in base[:3])
+                    brightness = .05 if identifier == hover_id else 0
+                    background = tuple(value + (1 - value) * brightness for value in muted) + (1,)
+                    foreground = (.92, .94, .96, 1)
             elif identifier == active_id:
                 background, foreground = (.05, .36, .55, 1), (1, 1, 1, 1)
             elif identifier == hover_id:
@@ -81,6 +99,10 @@ def draw(layout, active_id=None, hover_id=None, disabled_ids=(), scale=1.0):
             else:
                 background, foreground = (.18, .20, .22, 1), (.92, .94, .96, 1)
             draw_rect(x, y, width, height, background)
+            if identifier == active_id and identifier not in disabled_ids:
+                # A thick white marker stays consistent across all button colors.
+                marker_height = min(7 * scale, height * .2)
+                draw_rect(x, y, width, marker_height, (1, 1, 1, 1))
             label = button['label']
             tw, th = fitted_size(label, width - 16 * scale, height - 10, 17 * scale)
             blf.color(0, *foreground)

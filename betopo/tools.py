@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 Betopo contributors
-"""Button-activated viewport tools. No global keymaps are installed."""
+"""Viewport tools with workspace-scoped shortcuts; no global keymaps are installed."""
 import math
 import time
 
@@ -13,11 +13,12 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 from bpy.app.handlers import persistent
 
-from . import core, contours, point_faces, holes, slice, dock
+from . import core, contours, point_faces, holes, slice, dock, area as area_grid, flow
 
 TOOL_NAMES = [('PEN','Add'),('DRAW','Draw'),('CONTOUR','Contours'),
               ('FILL','Fill / Bridge'),('STAMP','Templates'),('RELAX','Relax'),('TWEAK','Tweak'),
-              ('POINTS','Points / Faces'),('GFILL','GFill'),('SLICE','Edge Slice'),('DOT','Dot')]
+              ('POINTS','Points / Faces'),('GFILL','GFill'),('SLICE','Edge Slice'),('DOT','Dot'),
+              ('AREA','Area'),('FLOW','Flow')]
 SESSION = None
 
 
@@ -116,6 +117,17 @@ class BETOPO_OT_session(bpy.types.Operator):
         self._contour_count = 0
         self._preview_cancelled = False
         self._rotation = None
+        self._area_guides = []
+        self._area_drag = None
+        self._area_corner_press = False
+        self._area_signature = None
+        self._flow_last = None
+        self._flow_start = self._flow_end = None
+        self._flow_signature = None
+        self._flow_controls = []
+        self._flow_drag = None
+        self._flow_press = False
+        self._flow_preview_mode = None
         self._tool = self.settings.tool
         self._overlay_before = {}
         overlay = self.area.spaces.active.overlay
@@ -148,6 +160,16 @@ class BETOPO_OT_session(bpy.types.Operator):
         self._hole_outline = []
         self._fill_signature = None
         self._preview_cancelled = False
+        self._area_guides = []
+        self._area_drag = None
+        self._area_corner_press = False
+        self._area_signature = None
+        self._flow_start = self._flow_end = None
+        self._flow_signature = None
+        self._flow_controls = []
+        self._flow_drag = None
+        self._flow_press = False
+        self._flow_preview_mode = None
         self.settings.tool = tool
         if tool == 'PEN':
             selected = [e for e in self.bm.edges if e.select and not e.hide and len(e.link_faces)<2]
@@ -165,6 +187,24 @@ class BETOPO_OT_session(bpy.types.Operator):
             self.settings.status = 'Edge Slice: hover along an edge to position the loop; click to create'
         elif tool == 'DOT':
             self.settings.status = 'Dot: click points on Source; Enter creates the smooth strip; Backspace removes last'
+        elif tool == 'AREA':
+            try:
+                selected = core.selected_boundaries(self.bm)
+                if len(selected) == 1 and not selected[0][1]:
+                    vertices = selected[0][0]
+                    self._area_guides = [dict(points=[self.obj.matrix_world @ v.co for v in vertices],
+                                             existing=list(vertices))]
+            except ValueError:
+                pass
+            self.area_status()
+        elif tool == 'FLOW':
+            if self._flow_last is None:
+                self.settings.flow_mode = 'NEW'
+            try:
+                self.sync_flow_mode()
+                self.build_flow()
+            except ValueError as error:
+                self.settings.status = str(error)
         else:
             self.settings.status = dict(TOOL_NAMES)[tool]+': Left mouse to use; Esc to exit'
         self.area.tag_redraw()
@@ -221,6 +261,15 @@ class BETOPO_OT_session(bpy.types.Operator):
             self.build_draw()
         elif self._tool == 'CONTOUR':
             self.build_contour()
+        elif self._tool == 'AREA':
+            if self._area_drag is not None:
+                self._area_drag = None
+                self.build_area()
+            else:
+                self.finish_area_side()
+        elif self._tool == 'FLOW':
+            self._flow_drag = None
+            self.build_flow()
         elif self._brush_before:
             core.refresh(self.obj,self.bm,False)
             if bpy.ops.ed.undo_push.poll():
@@ -354,9 +403,14 @@ class BETOPO_OT_session(bpy.types.Operator):
             vertices,edges = slice.apply(self.obj,self.bm,plan)
             result = vertices,[]
             message = f'Edge Slice: {len(edges)} edges'
+        elif self._tool == 'FLOW' and self.settings.flow_mode == 'REDRAW':
+            result = flow.apply_redraw(self.obj,self.bm,self._flow_last,plan)
+            message = f'Flow: redrew {len(plan["faces"])} quads'
         else:
             result = core.add_patch(self.obj,self.bm,plan,self.source,self.settings.weld_distance)
             message = f'Applied: {len(plan["faces"])} faces'
+            if self._tool == 'FLOW':
+                self._flow_last = flow.record(self.obj,*result,plan)
         if bpy.ops.ed.undo_push.poll():
             bpy.ops.ed.undo_push(message='Betopo: '+dict(TOOL_NAMES)[self._tool])
         self.settings.status = message
@@ -367,7 +421,295 @@ class BETOPO_OT_session(bpy.types.Operator):
         self._hole_outline = []
         self._fill_signature = None
         self._hole_picker.dirty = True
+        if self._tool == 'AREA':
+            self._area_guides = []
+            self._area_signature = None
+        if self._tool == 'FLOW':
+            self._flow_start = self._flow_end = None
+            self._flow_signature = None
+            self._flow_controls = []
+            self._flow_drag = None
+            self._preview_cancelled = True
         return result
+
+    def boundary_edge_at(self,cursor):
+        if cursor is None:
+            return None
+        best, distance = None, self.settings.snap_pixels
+        for edge in self.bm.edges:
+            if edge.hide or len(edge.link_faces) > 1:
+                continue
+            world = [self.obj.matrix_world @ v.co for v in edge.verts]
+            screen = [view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,p) for p in world]
+            if any(p is None for p in screen):
+                continue
+            delta = screen[1]-screen[0]
+            t = max(0,min(1,(cursor-screen[0]).dot(delta)/max(delta.length_squared,1e-12)))
+            point = screen[0]+delta*t
+            if (point-cursor).length >= distance:
+                continue
+            hit = self.hit_at(point)
+            if hit is None or (hit[0]-world[0].lerp(world[1],t)).length > max(
+                    self.source.size*.002,abs(self.settings.offset)*2,self.settings.weld_distance*2):
+                continue
+            best,distance = tuple(edge.verts),(point-cursor).length
+        return best
+
+    def area_status(self):
+        self.settings.status = f'Area: {len(self._area_guides)}/4 sides; draw connected sides; Backspace removes last'
+
+    def build_area(self):
+        if len(self._area_guides) != 4:
+            self._plan = None
+            self.area_status()
+            return
+        signature = (tuple(tuple(tuple(p) for p in g['points']) for g in self._area_guides),
+                     self.settings.area_quad_size,self.settings.area_columns,self.settings.area_rows,
+                     self.settings.offset,id(self.source))
+        if signature == self._area_signature and self._plan is not None:
+            return
+        self._area_signature = signature
+        self._plan = None
+        plan = area_grid.grid_plan(self._area_guides,self.settings.area_quad_size,self.source,
+                                   self.settings.offset,(self.settings.area_columns,self.settings.area_rows))
+        self._plan = flow.check_attachment(self.obj,self.bm,plan,self.source)
+        self.settings.status = f'Area: {self._plan["grid_columns"]} x {self._plan["grid_rows"]} quads; Ctrl-drag a corner; Enter applies'
+
+    def begin_area_side(self):
+        if len(self._area_guides) == 4:
+            self.settings.status = 'Area preview ready: Enter applies; Backspace redraws the last side'
+            return
+        if not self._area_guides:
+            edge = self.boundary_edge_at(self._cursor)
+            if edge:
+                self._area_guides = [dict(points=[self.obj.matrix_world @ v.co for v in edge],existing=list(edge))]
+                self.area_status()
+                return
+        first = self._area_guides[-1]['points'][-1].copy() if self._area_guides else self._hit[0].copy()
+        self._stroke = [first]
+        self._plan = None
+        self._preview_cancelled = False
+        self._drawing = True
+
+    def finish_area_side(self):
+        if len(self._stroke) < 2:
+            self._stroke = []
+            self.area_status()
+            return
+        points = [p.copy() for p in self._stroke]
+        self._stroke = []
+        if self._area_guides:
+            points[0] = self._area_guides[-1]['points'][-1].copy()
+        if len(self._area_guides) == 3:
+            first = self._area_guides[0]['points'][0]
+            screen = view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,first)
+            if screen is None or (screen-self._cursor).length > self.settings.snap_pixels*2:
+                self.settings.status = 'Finish the fourth side at the first corner'
+                return
+            points[-1] = first.copy()
+        self._area_guides.append(dict(points=points))
+        self._area_signature = None
+        self.build_area()
+
+    def begin_area_corner(self):
+        if not self._area_guides:
+            return False
+        corners = [g['points'][0] for g in self._area_guides]
+        chosen,distance = None,self.settings.snap_pixels*1.5
+        for i, point in enumerate(corners):
+            screen = view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,point)
+            if screen is not None and (screen-self._cursor).length < distance:
+                chosen,distance = i,(screen-self._cursor).length
+        if chosen is None:
+            return False
+        if len(self._area_guides) != 4:
+            self.settings.status = 'Complete four Area sides before moving corners'
+            return True
+        previous = (chosen-1) % 4
+        if self._area_guides[chosen].get('existing') or self._area_guides[previous].get('existing'):
+            self.settings.status = 'Attached Area corners stay on the existing boundary'
+            return True
+        self._area_drag = (chosen,[[p.copy() for p in g['points']] for g in self._area_guides])
+        self._drawing = True
+        return True
+
+    def move_area_corner(self):
+        corner,before = self._area_drag
+        delta = self._hit[0]-before[corner][0]
+        for side,at_start in ((corner,True),((corner-1)%4,False)):
+            points = before[side]
+            self._area_guides[side]['points'] = [self.source.project(p+delta*(1-i/(len(points)-1) if at_start
+                    else i/(len(points)-1)),self.settings.offset) for i,p in enumerate(points)]
+        self._area_signature = None
+        self.build_area()
+
+    def cancel_area_drag(self):
+        if self._area_drag is not None:
+            for guide,points in zip(self._area_guides,self._area_drag[1]):
+                guide['points'] = points
+            self._area_drag = None
+            self._drawing = False
+            self._area_signature = None
+
+    def sync_flow_mode(self):
+        if self._flow_preview_mode == self.settings.flow_mode:
+            return
+        self._flow_preview_mode = self.settings.flow_mode
+        self._flow_controls = []
+        self._flow_start = self._flow_end = None
+        self._flow_drag = None
+        self._flow_signature = self._plan = None
+        self._drawing = False
+        self._preview_cancelled = False
+        if self.settings.flow_mode == 'REDRAW':
+            state = flow.check_record(self._flow_last,self.obj)
+            controls = state.get('controls')
+            if not controls or state['closed']:
+                raise ValueError('Redraw Last needs a two-point Flow strip from this session')
+            self._flow_controls = [p.copy() for p in controls]
+            self._flow_start,self._flow_end = state['start'],state['end']
+
+    def build_flow(self):
+        self.sync_flow_mode()
+        if len(self._flow_controls) != 4:
+            self._plan = None
+            self.settings.status = ('Flow: click the end point (or drag from the start)' if self._flow_controls
+                                    else 'Flow: click two endpoints or drag start to end')
+            return
+        state = flow.check_record(self._flow_last,self.obj) if self.settings.flow_mode == 'REDRAW' else None
+        if not state and not self.settings.flow_snap:
+            self._flow_start = self._flow_end = None
+        segments = state['segments'] if state else self.settings.flow_segments
+        start,end = (state['start'],state['end']) if state else (self._flow_start,self._flow_end)
+        signature = (tuple(tuple(p) for p in self._flow_controls),segments,self.settings.flow_width,
+                     self.settings.offset,id(self.source),self.settings.flow_mode,
+                     tuple(start or ()),tuple(end or ()))
+        if signature == self._flow_signature and self._plan is not None:
+            return
+        self._flow_signature = signature
+        self._plan = None
+        plan = flow.bezier_plan(self._flow_controls,segments,self.settings.flow_width,self.source,
+                                self.settings.offset,self.obj,start,end,fixed_order=state is not None)
+        if state is None:
+            flow.check_attachment(self.obj,self.bm,plan,self.source)
+        self._flow_controls = [p.copy() for p in plan['flow_controls']]
+        self._plan = plan
+        self.settings.status = f'Flow: {segments} quads; drag endpoints / orange handles / white curve; Enter applies'
+
+    def flow_endpoint(self,coordinates,other=None):
+        hit = self.hit_at(coordinates)
+        if hit is None:
+            return None,None
+        edge = self.boundary_edge_at(coordinates) if self.settings.flow_snap and self.settings.flow_mode == 'NEW' else None
+        if edge and other and set(edge) == set(other):
+            edge = None
+        point = sum((self.obj.matrix_world@v.co for v in edge),Vector())*.5 if edge else hit[0].copy()
+        return point,edge
+
+    def flow_pick(self,coordinates):
+        best,distance = None,max(9,self.settings.snap_pixels)
+        for i,p in enumerate(self._flow_controls):
+            screen = view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,p)
+            if screen is not None and (screen-coordinates).length < distance:
+                best,distance = i,(screen-coordinates).length
+        if best is not None:
+            return best
+        if self._plan:
+            screen = [view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,p) for p in self._plan['curve']]
+            for a,b in zip(screen,screen[1:]):
+                if a is None or b is None:
+                    continue
+                delta = b-a
+                t = min(1,max(0,(coordinates-a).dot(delta)/max(delta.length_squared,1e-12)))
+                if (coordinates-a-delta*t).length < 7:
+                    return 'MOVE'
+        return None
+
+    def begin_flow(self,coordinates):
+        self.sync_flow_mode()
+        self._flow_press = True
+        before = [p.copy() for p in self._flow_controls]
+        anchors = (self._flow_start,self._flow_end)
+        if len(before) == 4:
+            chosen = self.flow_pick(coordinates)
+            if chosen is None:
+                self.settings.status = 'Drag a point, orange handle or white curve; Enter applies; Esc starts over'
+                return
+            if ((chosen in {0,'MOVE'} and self._flow_start) or (chosen in {3,'MOVE'} and self._flow_end)):
+                self.settings.status = 'Attached endpoints stay fixed; drag their tangent handles (New: disable Attach to Borders to detach)'
+                return
+        else:
+            if self.settings.flow_mode == 'REDRAW':
+                raise ValueError('Switch to New Strip to create another Flow')
+            point,edge = self.flow_endpoint(coordinates,self._flow_start)
+            if point is None:
+                return
+            chosen = 'CREATE'
+            if not before:
+                self._flow_controls = [point]
+                self._flow_start = edge
+                self._flow_end = None
+            else:
+                self._flow_controls = flow.default_controls(before[0],point)
+                self._flow_end = edge
+        reference = before[chosen] if isinstance(chosen,int) else self._flow_controls[0]
+        plane = view3d_utils.region_2d_to_location_3d(self.region,self.rv3d,coordinates,reference)
+        hit = self.hit_at(coordinates)
+        self._flow_drag = dict(kind=chosen,before=before,anchors=anchors,screen=coordinates.copy(),
+                               plane=plane,reference=reference.copy(),hit=hit[0].copy() if hit else plane)
+        self._drawing = True
+        self._preview_cancelled = False
+        self._flow_signature = self._plan = None
+        if len(self._flow_controls) == 4:
+            self.build_flow()
+
+    def move_flow(self,coordinates):
+        drag = self._flow_drag
+        kind,before = drag['kind'],drag['before']
+        if kind == 'CREATE':
+            # A click leaves one seed; a drag or second click supplies the other endpoint.
+            if not before and (coordinates-drag['screen']).length < 4:
+                return
+            point,edge = self.flow_endpoint(coordinates,self._flow_start)
+            if point is None:
+                return
+            self._flow_controls = flow.default_controls(self._flow_controls[0],point)
+            self._flow_end = edge
+        elif kind in {1,2}:
+            plane = view3d_utils.region_2d_to_location_3d(self.region,self.rv3d,coordinates,drag['reference'])
+            self._flow_controls[kind] = before[kind]+plane-drag['plane']
+        elif kind in {0,3}:
+            point,edge = self.flow_endpoint(coordinates,self._flow_end if kind == 0 else self._flow_start)
+            if point is None:
+                return
+            self._flow_controls[kind] = point
+            handle = 1 if kind == 0 else 2
+            self._flow_controls[handle] = before[handle]+point-before[kind]
+            if kind == 0:
+                self._flow_start = edge
+            else:
+                self._flow_end = edge
+        else:
+            hit = self.hit_at(coordinates)
+            if hit is None:
+                return
+            delta = hit[0]-drag['hit']
+            self._flow_controls = [p+delta for p in before]
+            for endpoint,handle in ((0,1),(3,2)):
+                projected = self.source.project(self._flow_controls[endpoint],self.settings.offset)
+                self._flow_controls[handle] += projected-self._flow_controls[endpoint]
+                self._flow_controls[endpoint] = projected
+        self._flow_signature = None
+        self.build_flow()
+
+    def end_flow_drag(self,cancel=False):
+        if self._flow_drag is not None and cancel:
+            self._flow_controls = self._flow_drag['before']
+            self._flow_start,self._flow_end = self._flow_drag['anchors']
+        self._flow_drag = None
+        self._drawing = False
+        self._flow_signature = self._plan = None
+        self.build_flow()
 
     def dot_click(self):
         point = self.source.project(self._hit[0])
@@ -570,12 +912,72 @@ class BETOPO_OT_session(bpy.types.Operator):
                         self.build_draw()
                     else:
                         self.build_contour()
+                if self._tool == 'AREA' and self._area_guides and not self._drawing and not self._preview_cancelled:
+                    self.build_area()
+                if self._tool == 'FLOW' and not self._drawing and (not self._preview_cancelled or
+                        self._flow_preview_mode != self.settings.flow_mode):
+                    self.build_flow()
             except (ValueError,RuntimeError) as error:
                 self._plan = None
                 self.settings.status = str(error)
             self.area.tag_redraw()
             return {'PASS_THROUGH'}
+        shortcut = dock.shortcut_context(context,event)
+        if shortcut is not None:
+            if self._drawing or self._rotation is not None:
+                return {'RUNNING_MODAL'}
+            if shortcut[0] == self.area and shortcut[1] == self.region:
+                if event.value == 'PRESS' and not event.is_repeat:
+                    if shortcut[2] != self._tool:
+                        self.change_tool(shortcut[2])
+                    dock.focus_sidebar(self.area)
+                return {'RUNNING_MODAL'}
         coordinates = self.coordinates(event)
+        if self._tool == 'FLOW' and self._flow_drag is not None:
+            try:
+                if event.type in {'ESC','RIGHTMOUSE'} and event.value == 'PRESS':
+                    self.end_flow_drag(cancel=True)
+                elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+                    self._flow_press = False
+                    self.end_flow_drag()
+                elif event.type == 'MIDDLEMOUSE' and event.value == 'PRESS':
+                    self.end_flow_drag(cancel=True)
+                    self._flow_press = False
+                    return {'PASS_THROUGH'}
+                elif event.type == 'MOUSEMOVE':
+                    if (0 <= coordinates.x < self.region.width and 0 <= coordinates.y < self.region.height and
+                            not dock.native_region_hit(self.area,event) and
+                            not dock.dock_hit(context,self.area,self.region,event)):
+                        self._cursor = coordinates
+                        self.move_flow(coordinates)
+                elif event.value == 'PRESS' and (event.type in {'W','E','R','ONE','TWO','THREE','FOUR','FIVE','TAB','DEL','SPACE'} or
+                        event.ctrl and event.type in {'Z','Y'}):
+                    self.finish(rollback=True)
+                    return {'CANCELLED','PASS_THROUGH'}
+            except (ValueError,RuntimeError) as error:
+                self._plan = None
+                self.settings.status = str(error)
+            self.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if self._flow_press and event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._flow_press = False
+            return {'RUNNING_MODAL'}
+        if self._area_drag is not None:
+            if (event.type == 'ESC' and event.value == 'PRESS') or (event.type == 'LEFTMOUSE' and event.value == 'RELEASE'):
+                try:
+                    if event.type == 'ESC':
+                        self.cancel_area_drag()
+                        self.build_area()
+                    else:
+                        self.release_drawing()
+                except (ValueError,RuntimeError) as error:
+                    self._plan = None
+                    self.settings.status = str(error)
+                self._area_corner_press = False
+                return {'RUNNING_MODAL'}
+        if self._area_corner_press and event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._area_corner_press = False
+            return {'RUNNING_MODAL'}
         # Capture the whole drag, including release outside the viewport or after Ctrl is released.
         if self._rotation is not None:
             try:
@@ -636,6 +1038,7 @@ class BETOPO_OT_session(bpy.types.Operator):
                 return {'CANCELLED','PASS_THROUGH'}
         if event.type in {'MIDDLEMOUSE','LEFT_ALT','RIGHT_ALT'}:
             if event.type=='MIDDLEMOUSE' and event.value=='PRESS' and self._drawing:
+                self.cancel_area_drag()
                 self.rollback_brush()
                 self._drawing = False
                 self._stroke = []
@@ -672,12 +1075,19 @@ class BETOPO_OT_session(bpy.types.Operator):
             self.finish(rollback=True)
             return {'CANCELLED'}
         if event.type in {'ESC','RIGHTMOUSE'} and event.value=='PRESS':
-            if self._plan is not None or self._pen or self._drawing or (self._tool=='DOT' and self._stroke):
+            if self._plan is not None or self._pen or self._drawing or (self._tool=='DOT' and self._stroke) or self._area_guides or self._flow_controls:
                 self.rollback_brush()
                 self._plan,self._pen,self._pen_refs,self._stroke,self._drawing = None,[],{},[],False
                 self._hole_outline = []
                 self._dot_signature = None
                 self.reset_stroke_cache()
+                self._area_guides = []
+                self._area_drag = None
+                self._area_signature = self._flow_signature = None
+                self._flow_start = self._flow_end = None
+                self._flow_controls = []
+                self._flow_drag = None
+                self._flow_press = False
                 self._preview_cancelled = True
                 self.settings.status = 'Preview cancelled; Esc again exits tool'
                 self.area.tag_redraw()
@@ -685,6 +1095,23 @@ class BETOPO_OT_session(bpy.types.Operator):
             self.finish(rollback=True)
             return {'CANCELLED'}
         try:
+            if self._tool == 'FLOW' and event.type == 'LEFTMOUSE':
+                if event.ctrl or event.alt or event.shift:
+                    return {'PASS_THROUGH'}
+                if event.value == 'PRESS':
+                    self.begin_flow(coordinates)
+                    self.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            if event.type == 'BACK_SPACE' and event.value == 'PRESS' and self._tool == 'AREA':
+                self.cancel_area_drag()
+                if self._area_guides:
+                    self._area_guides.pop()
+                self._stroke = []
+                self._drawing = False
+                self._area_signature = None
+                self.build_area()
+                self.area.tag_redraw()
+                return {'RUNNING_MODAL'}
             if event.type=='BACK_SPACE' and event.value=='PRESS' and self._tool=='DOT':
                 if self._stroke:
                     self._stroke.pop()
@@ -708,6 +1135,9 @@ class BETOPO_OT_session(bpy.types.Operator):
                     self.build_draw()
                 else:
                     self.build_contour()
+            if event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS' and self._tool=='FLOW' and not self._preview_cancelled:
+                self.source = core.surface(self.settings,context)
+                self.build_flow()
             if event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS' and self._plan and self._tool!='POINTS':
                 vertices,_faces = self.commit(self._plan)
                 if self._tool=='CONTOUR':
@@ -735,7 +1165,13 @@ class BETOPO_OT_session(bpy.types.Operator):
                     self.build_points_face()
                     self._last_face_preview = time.monotonic()
                 if self._drawing and self._hit:
-                    if self._tool in {'DRAW','CONTOUR'}:
+                    if self._tool == 'AREA' and self._area_drag is not None:
+                        try:
+                            self.move_area_corner()
+                        except ValueError as error:
+                            self._plan = None
+                            self.settings.status = str(error)
+                    elif self._tool in {'DRAW','CONTOUR','AREA'}:
                         if not self._stroke or (self._hit[0]-self._stroke[-1]).length>self.source.size*.0005:
                             self._stroke.append(self._hit[0].copy())
                     elif time.monotonic()-self._last_brush>.025:
@@ -744,6 +1180,13 @@ class BETOPO_OT_session(bpy.types.Operator):
                 self.area.tag_redraw()
                 return {'PASS_THROUGH'} if not self._drawing else {'RUNNING_MODAL'}
             if event.type=='LEFTMOUSE':
+                if self._tool == 'AREA' and event.ctrl and not event.alt and not event.shift:
+                    if event.value == 'PRESS':
+                        self._hit = self.hit_at(coordinates)
+                        if self._hit and self.begin_area_corner():
+                            self._area_corner_press = True
+                            return {'RUNNING_MODAL'}
+                    return {'PASS_THROUGH'}
                 if event.ctrl or event.alt or event.shift:
                     return {'PASS_THROUGH'}
                 if event.value=='PRESS':
@@ -768,6 +1211,8 @@ class BETOPO_OT_session(bpy.types.Operator):
                         self.build_stamp()
                         if self._plan:
                             self.commit(self._plan)
+                    elif self._tool == 'AREA':
+                        self.begin_area_side()
                     elif self._tool in {'DRAW','CONTOUR','RELAX','TWEAK'}:
                         self._drawing = True
                         self._plan = None
@@ -780,6 +1225,10 @@ class BETOPO_OT_session(bpy.types.Operator):
                     self.area.tag_redraw()
                     return {'RUNNING_MODAL'}
                 if event.value=='RELEASE':
+                    if self._drawing and self._tool == 'AREA':
+                        self._hit = self.hit_at(coordinates)
+                        if self._hit and self._stroke and (self._hit[0]-self._stroke[-1]).length > 1e-9:
+                            self._stroke.append(self._hit[0].copy())
                     self.release_drawing()
                     return {'RUNNING_MODAL'}
                 return {'RUNNING_MODAL'}
@@ -831,6 +1280,18 @@ class BETOPO_OT_session(bpy.types.Operator):
             if self._plan:
                 curve = self._plan['curve']
                 lines.extend(tuple(p) for a,b in zip(curve,curve[1:]) for p in (a,b))
+        guide_lines = []
+        if self._tool == 'AREA':
+            guides = [g['points'] for g in self._area_guides]
+            guides += [self._stroke] if self._drawing and self._area_drag is None else []
+            guide_lines = [tuple(p) for guide in guides for a,b in zip(guide,guide[1:]) for p in (a,b)]
+            points = [g[0] for g in guides if g]
+        if self._tool == 'FLOW':
+            points = []
+            if len(self._flow_controls) == 4:
+                curve = self._plan['curve'] if self._plan else flow.bezier_curve(
+                    self._flow_controls,self.source,self.settings.offset)
+                guide_lines = [tuple(p) for a,b in zip(curve,curve[1:]) for p in (a,b)]
         if self._hole_outline:
             lines.extend(tuple(p) for a,b in zip(self._hole_outline,self._hole_outline[1:]+self._hole_outline[:1])
                          for p in (a,b))
@@ -845,7 +1306,7 @@ class BETOPO_OT_session(bpy.types.Operator):
             radius = (edge-center).length
             circle = [center+radius*(u*math.cos(i*math.tau/48)+v*math.sin(i*math.tau/48)) for i in range(49)]
             lines.extend(tuple(p) for a,b in zip(circle,circle[1:]) for p in (a,b))
-        if not lines and not points:
+        if not lines and not points and not guide_lines and not (self._tool == 'FLOW' and self._flow_controls):
             return
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         depth,blend = gpu.state.depth_test_get(),gpu.state.blend_get()
@@ -855,19 +1316,22 @@ class BETOPO_OT_session(bpy.types.Operator):
             gpu.state.blend_set('ALPHA')
             gpu.state.line_width_set(2.0)
             shader.bind()
-            if self._tool in {'POINTS','FILL','GFILL','DOT'} and self._plan and self._plan['faces']:
+            if self._tool in {'POINTS','FILL','GFILL','DOT','AREA','FLOW'} and self._plan and self._plan['faces']:
                 face_points = self._plan['points']
                 tris = [tuple(face_points[j]) for face in self._plan['faces']
                         for i in range(1,len(face)-1) for j in (face[0],face[i],face[i+1])]
                 shader.uniform_float('color',(.12,.75,1.0,.22))
                 batch_for_shader(shader,'TRIS',{'pos':tris}).draw(shader)
-            shader.uniform_float('color',(.12,.85,1.0,1.0) if self._tool=='DOT' or
+            if guide_lines:
+                shader.uniform_float('color',(.95,.95,.95,1.0))
+                batch_for_shader(shader,'LINES',{'pos':guide_lines}).draw(shader)
+            shader.uniform_float('color',(.12,.85,1.0,1.0) if self._tool in {'DOT','AREA','FLOW'} or
                                  (self._tool in {'POINTS','FILL','GFILL','SLICE'} and self._plan)
                                  else (1.0,.65,.12,1.0))
             if lines:
                 batch_for_shader(shader,'LINES',{'pos':lines}).draw(shader)
             if points:
-                if self._tool in {'POINTS','DOT'}:
+                if self._tool in {'POINTS','DOT','AREA'}:
                     # Screen-sized discs avoid changing Blender's global GPU point-size state.
                     discs = []
                     for co in points:
@@ -882,10 +1346,39 @@ class BETOPO_OT_session(bpy.types.Operator):
                         batch_for_shader(shader,'TRIS',{'pos':discs}).draw(shader)
                 else:
                     batch_for_shader(shader,'POINTS',{'pos':[tuple(p) for p in points]}).draw(shader)
+            if self._tool == 'FLOW':
+                self.draw_flow_controls(shader)
         finally:
             gpu.state.depth_test_set(depth)
             gpu.state.blend_set(blend)
             gpu.state.line_width_set(width)
+
+    def draw_flow_controls(self,shader):
+        controls = self._flow_controls
+        if not controls:
+            return
+        if len(controls) == 4:
+            shader.uniform_float('color',(1.0,.63,.18,1.0))
+            batch_for_shader(shader,'LINES',{'pos':[tuple(controls[i]) for i in (0,1,3,2)]}).draw(shader)
+        def discs(indices,radius,color):
+            triangles = []
+            for i in indices:
+                co = controls[i]
+                screen = view3d_utils.location_3d_to_region_2d(self.region,self.rv3d,co)
+                if screen is None:
+                    continue
+                rim = [view3d_utils.region_2d_to_location_3d(self.region,self.rv3d,
+                       screen+radius*Vector((math.cos(j*math.tau/16),math.sin(j*math.tau/16))),co) for j in range(16)]
+                triangles.extend(tuple(p) for a,b in zip(rim,rim[1:]+rim[:1]) for p in (co,a,b))
+            if triangles:
+                shader.uniform_float('color',color)
+                batch_for_shader(shader,'TRIS',{'pos':triangles}).draw(shader)
+        ends = (0,3) if len(controls) == 4 else (0,)
+        discs(ends,8,(.98,.98,.98,1))
+        discs(ends,5,(.12,.75,1.0,1))
+        if len(controls) == 4:
+            discs((1,2),7,(.08,.08,.08,1))
+            discs((1,2),5,(1.0,.63,.18,1))
 
 
 CLASSES = (BETOPO_OT_tool,BETOPO_OT_exit,BETOPO_OT_session)

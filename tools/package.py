@@ -8,7 +8,7 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ('__init__', 'contours', 'core', 'dock', 'dock_draw', 'holes',
+MODULES = ('__init__', 'area', 'contours', 'core', 'dock', 'dock_draw', 'flow', 'holes',
            'operators', 'point_faces', 'slice', 'tools', 'transition')
 RUNTIME = ([f'{name}.py' for name in MODULES]
            + [f'icons/{name}.png' for name in 'ABCDEFGH']
@@ -17,7 +17,8 @@ ROOT_FILES = ['README.md', 'AI_INSTALL.md', 'INSTALLATION.json', 'AGENTS.md',
               'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'LICENSE',
               'LICENSE-ASSETS', 'NOTICE', 'install_betopo.py', 'verify_install.py',
               'package-manifest.json', 'tools/build_workspace.py', 'tools/package.py',
-              'tests/smoke.py', '.gitignore', '.gitattributes', '.github/CODEOWNERS', '.github/pull_request_template.md',
+              'tests/smoke.py', 'tests/test_area_flow_core.py', 'tests/test_flow_bezier_core.py',
+              'tests/test_area_flow_ui.py', '.gitignore', '.gitattributes', '.github/CODEOWNERS', '.github/pull_request_template.md',
               '.github/ISSUE_TEMPLATE/bug_report.yml',
               '.github/ISSUE_TEMPLATE/feature_request.yml',
               '.github/ISSUE_TEMPLATE/config.yml']

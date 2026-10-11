@@ -27,7 +27,8 @@ Blender license information: https://www.blender.org/about/license/
 
 Workflow references
 -------------------
-RetopoFlow documentation and 3DCoat documentation were consulted for workflow
+RetopoFlow documentation, 3DCoat documentation, and TopoPen's public workflow
+demonstrations were consulted for workflow
 ideas during development. Betopo does not bundle their source code, icons,
 screenshots, documentation, installers, or proprietary assets. Tool behavior
 and user-interface arrangements are independently implemented in this project.
@@ -35,11 +36,18 @@ No compatibility, feature parity, endorsement, or affiliation is claimed.
 Reference links:
 https://docs.retopoflow.com/v4/quick_start.html
 https://3dcoat.com/docs/3dcoat/Tools.php?room=Modeling&lang=English
+https://superhivemarket.com/products/topopen
+
+Area uses independently implemented Coons interpolation. Flow uses a cubic
+Bezier curve and Betopo's surface projection and BMesh construction. No TopoPen
+package, source code, images, or demonstration files are distributed here.
 
 Development assistance
 ----------------------
 AI tools assisted with implementation and review. Changes were reviewed and
-tested for this project. This notice is not a warranty of originality or an
+tested for this project. Gemini 3.1 Pro assisted with Area interpolation and
+Flow curve construction; Codex reviewed and integrated the code and ran Blender
+geometry and interactive regression checks. This notice is not a warranty of originality or an
 assertion that a source review can rule out every intellectual-property claim.
 
 Contributors must disclose copied or adapted third-party material and preserve

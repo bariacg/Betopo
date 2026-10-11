@@ -129,6 +129,8 @@ class BETOPO_OT_setup(bpy.types.Operator):
         settings.target = obj
         source_surface = core.surface(settings, context)
         settings.strip_width = max(source_surface.size * .04, .0001)
+        settings.area_quad_size = max(source_surface.size * .025, .0001)
+        settings.flow_width = settings.strip_width
         settings.template_size = max(source_surface.size * .12, .0001)
         settings.weld_distance = max(source_surface.size * .0001, .000001)
         core.ensure_symmetry(settings)

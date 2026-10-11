@@ -44,11 +44,23 @@ using Blender's bundled Python, not system Python.
 ```text
 python tools/package.py --check
 <blender> --background --factory-startup --python-exit-code 1 --python tests/smoke.py
+<blender> --background --factory-startup --python-exit-code 1 --python tests/test_area_flow_core.py
+<blender> --background --factory-startup --python-exit-code 1 --python tests/test_flow_bezier_core.py
 ```
 
 The smoke test registers the add-on in a disposable factory session and checks
 templates, workspace loading, version defaults, and preservation of scene data
 and keymaps. It does not replace interactive tool testing.
+
+The geometry tests build synthetic meshes and check projection, border reuse,
+degenerate input, and safe redraw. Reports go to ignored `.test-output/`.
+
+For interactive regression checks, launch an isolated Blender 5.1 UI with
+`--factory-startup --enable-event-simulate --python tests/test_area_flow_ui.py`.
+The script simulates mouse/key events in its own window and quits when done;
+use a disposable `BLENDER_USER_RESOURCES` directory, never a working session.
+An optional `-- --keyconfig <path-to-preset.py>` loads a custom keymap in that
+test session only. Screenshots and results stay in `.test-output/`.
 
 To regenerate the bundled layout after an intentional layout change:
 

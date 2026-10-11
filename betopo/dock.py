@@ -6,12 +6,14 @@ import bpy
 ITEMS = [
     ('NEW', 'New Retopo'), ('EDIT', 'Edit Target'),
     ('PEN', 'Add'), ('POINTS', 'Points / Faces'), ('DRAW', 'Draw'), ('DOT', 'Dot'),
+    ('AREA', 'Area'), ('FLOW', 'Flow'),
     ('CONTOUR', 'Contours'), ('FILL', 'Fill / Bridge'), ('GFILL', 'GFill'),
     ('SLICE', 'Edge Slice'), ('STAMP', 'Templates'), ('RELAX', 'Relax'), ('TWEAK', 'Tweak'),
     ('PROJECT', 'Magnet'), ('RELAX_SELECTED', 'Relax Selected'), ('PIN', 'Pin'),
     ('UNPIN', 'Unpin'), ('WELD', 'Weld'), ('LOOP', 'Loop Cut'), ('KNIFE', 'Knife'),
     ('TRANSITION', 'Transition Fill'), ('CHECK', 'Check Topology'), ('EXIT', 'Exit Tool'),
 ]
+SHORTCUTS = {'B': 'TWEAK', 'V': 'POINTS', 'E': 'SLICE'}
 MOUSE_EVENTS = {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 'LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE',
                 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE',
                 'TRACKPADPAN', 'TRACKPADZOOM', 'BUTTON4MOUSE', 'BUTTON5MOUSE'}
@@ -49,14 +51,34 @@ def ui_scale(context):
 
 
 def native_modal_active(window):
-    # Native Knife/Loop Cut own their clicks. Hide the dock until they finish or are cancelled.
+    # Native navigation/mesh tools own input while the dock remains visible.
     return any(not op.bl_rna.identifier.startswith('BETOPO_OT_')
                for op in window.modal_operators)
 
 
+def shortcut_context(context, event):
+    """Resolve plain tool keys only over an editable Betopo viewport, never native UI."""
+    identifier = SHORTCUTS.get(event.type)
+    window = context.window
+    if (identifier is None or event.value not in {'PRESS', 'RELEASE'} or window is None
+            or not active(window.workspace) or event.ctrl or event.shift or event.alt or event.oskey
+            or getattr(event, 'hyper', False)
+            or native_modal_active(window)):
+        return None
+    for area in window.screen.areas:
+        if area.type != 'VIEW_3D' or native_region_hit(area, event):
+            continue
+        region = next((r for r in area.regions if r.type == 'WINDOW' and contains(
+            (r.x, r.y, r.width, r.height), event.mouse_x, event.mouse_y)), None)
+        if region is not None:
+            with context.temp_override(window=window, area=area, region=region):
+                if identifier not in disabled_ids(bpy.context):
+                    return area, region, identifier
+    return None
+
+
 def layout_for(context, area, region):
-    if (not ENABLED or not active(context.workspace) or not context.scene.betopo.dock_visible
-            or native_modal_active(context.window)):
+    if not ENABLED or not active(context.workspace) or not context.scene.betopo.dock_visible:
         return None
     from . import dock_draw
     left = right = 0
@@ -68,12 +90,14 @@ def layout_for(context, area, region):
             right = max(right, overlap)
         elif other.type == 'TOOLS' and area.spaces.active.show_region_toolbar:
             left = max(left, overlap)
+    hints = {identifier: key for key, identifier in SHORTCUTS.items()}
     return dock_draw.layout(region.width, region.height, left, right, ui_scale(context),
-                            [{'id': key, 'label': label} for key, label in ITEMS])
+                            [{'id': key, 'label': label + (' [' + hints[key] + ']' if key in hints else '')}
+                             for key, label in ITEMS])
 
 
 def dock_hit(context, area, region, event):
-    if native_region_hit(area, event):
+    if native_modal_active(context.window) or native_region_hit(area, event):
         return None
     layout = layout_for(context, area, region)
     if layout and contains(layout['rect'], event.mouse_x - region.x, event.mouse_y - region.y):
@@ -227,7 +251,25 @@ class BETOPO_OT_dock(bpy.types.Operator):
                 if area.as_pointer() in self._pending_sidebar and focus_sidebar(area):
                     self._pending_sidebar.remove(area.as_pointer())
             return {'PASS_THROUGH'}
+        shortcut = shortcut_context(context, event)
+        if shortcut is not None:
+            from . import tools
+            session = tools.SESSION
+            if (session is not None and not session._closed and session.window == self.window
+                    and session.area == shortcut[0] and session.workspace == self.window.workspace):
+                return {'PASS_THROUGH'}  # The tool session owns this key exactly once.
+            if session is not None and (session._drawing or session._rotation is not None):
+                return {'RUNNING_MODAL'}
+            if event.value == 'PRESS' and not event.is_repeat:
+                try:
+                    dispatch(context, *shortcut)
+                except (ValueError, RuntimeError) as error:
+                    context.scene.betopo.status = str(error)
+            return {'RUNNING_MODAL'}  # Consume releases/repeats so native B/V/E cannot fire.
         if not active(self.window.workspace) or event.type not in MOUSE_EVENTS:
+            return {'PASS_THROUGH'}
+        if native_modal_active(self.window):
+            self._armed = None
             return {'PASS_THROUGH'}
         # A stroke/rotation that began on the model owns its release even above the dock.
         from . import tools

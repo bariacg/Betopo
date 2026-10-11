@@ -60,7 +60,7 @@ if options.uninstall:
     print('BETOPO_UNINSTALL_OK: other add-ons, settings and project meshes preserved.')
 else:
     manifest = json.loads((ROOT/'package-manifest.json').read_text(encoding='utf-8'))
-    if manifest['version'] != '0.1.10' or not manifest['files']:
+    if manifest['version'] != '0.1.16' or not manifest['files']:
         raise RuntimeError('Unexpected or empty package manifest')
     for relative,expected in manifest['files'].items():
         path = ROOT/'betopo'/relative

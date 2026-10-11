@@ -6,8 +6,8 @@ This document is for an assistant that the user has asked to install Betopo on t
 
 - Repository: https://github.com/bariacg/Betopo
 - Releases: https://github.com/bariacg/Betopo/releases
-- Current bundle: https://github.com/bariacg/Betopo/releases/download/v0.1.10/Betopo-0.1.10.zip
-- Release checksums: https://github.com/bariacg/Betopo/releases/download/v0.1.10/SHA256SUMS.txt
+- Current bundle: https://github.com/bariacg/Betopo/releases/download/v0.1.16/Betopo-0.1.16.zip
+- Release checksums: https://github.com/bariacg/Betopo/releases/download/v0.1.16/SHA256SUMS.txt
 - Machine-readable contract: [INSTALLATION.json](INSTALLATION.json)
 
 Use a published release from this repository. Download the ZIP and checksums from the same version tag. Avoid forks, advertisements, reposted installers, and a moving development branch for an ordinary installation.
@@ -26,18 +26,18 @@ Save work and close the target Blender application before replacing an existing 
 
 ## 2. Download and verify
 
-Download `Betopo-0.1.10.zip` and `SHA256SUMS.txt` to a new user-writable folder. Calculate the ZIP's SHA-256 and compare it with the corresponding checksum entry. Reject a mismatch. Checksums detect corruption; they are not a cryptographic signature proving publisher identity.
+Download `Betopo-0.1.16.zip` and `SHA256SUMS.txt` to a new user-writable folder. Calculate the ZIP's SHA-256 and compare it with the corresponding checksum entry. Reject a mismatch. Checksums detect corruption; they are not a cryptographic signature proving publisher identity.
 
 PowerShell example:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '<download-folder>\Betopo-0.1.10.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '<download-folder>\Betopo-0.1.16.zip'
 ```
 
 macOS/Linux example:
 
 ```sh
-shasum -a 256 '<download-folder>/Betopo-0.1.10.zip'
+shasum -a 256 '<download-folder>/Betopo-0.1.16.zip'
 ```
 
 Extract into an empty folder. Reject archive entries with absolute paths, `..` traversal, or links outside the destination. The root should contain `install_betopo.py`, `package-manifest.json`, `LICENSE`, `LICENSE-ASSETS`, `NOTICE`, and `betopo/`. Read the installer before running it. Do not run downloaded code with administrator privileges.
